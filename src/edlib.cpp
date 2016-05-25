@@ -9,6 +9,8 @@
 
 using namespace std;
 
+namespace Edlib {
+
 typedef uint64_t Word;
 static const int WORD_SIZE = sizeof(Word) * 8; // Size of Word in bits
 static const Word WORD_1 = (Word)1;
@@ -1253,3 +1255,5 @@ static int obtainAlignmentHirschberg(
     free(lrAlignment);
     return EDLIB_STATUS_OK;
 }
+
+} // namespace

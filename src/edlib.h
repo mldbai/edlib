@@ -6,6 +6,8 @@
 extern "C" {
 #endif
 
+namespace Edlib {
+
 // Status codes
 #define EDLIB_STATUS_OK 0
 #define EDLIB_STATUS_ERROR 1
@@ -114,6 +116,8 @@ extern "C" {
      */
     int edlibAlignmentToCigar(unsigned char* alignment, int alignmentLength,
                               int cigarFormat, char** cigar);
+
+} // namespace
 
 #ifdef __cplusplus
 }
