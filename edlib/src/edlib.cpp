@@ -1338,7 +1338,7 @@ EdlibAlignConfig edlibDefaultAlignConfig() {
     return edlibNewAlignConfig(-1, EDLIB_MODE_NW, EDLIB_TASK_DISTANCE);
 }
 
-void edlibFreeAlignResult(EdlibAlignResult result) {
+void edlibFreeAlignResult(EdlibAlignResult & result) {
     if (result.endLocations) free(result.endLocations);
     if (result.startLocations) free(result.startLocations);
     if (result.alignment) free(result.alignment);

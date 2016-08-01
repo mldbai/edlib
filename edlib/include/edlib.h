@@ -171,7 +171,7 @@ typedef enum {
      * Frees memory in EdlibAlignResult that was allocated by edlib.
      * If you do not use it, make sure to free needed members manually using free().
      */
-    void edlibFreeAlignResult(EdlibAlignResult result);
+    void edlibFreeAlignResult(EdlibAlignResult & result);
 
 
     /**
