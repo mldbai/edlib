@@ -9,65 +9,73 @@
 using namespace std;
 
 
-void runRandomTests(int numTests, int mode, bool findAlignment);
+bool runRandomTests(int numTests, EdlibAlignMode mode, bool findAlignment);
 bool runTests();
 
-int calcEditDistanceSimple(const unsigned char* query, int queryLength,
-                           const unsigned char* target, int targetLength,
-                           int alphabetLength, int mode, int* score,
+int calcEditDistanceSimple(const char* query, int queryLength,
+                           const char* target, int targetLength,
+                           EdlibAlignMode mode, int* score,
                            int** positions, int* numPositions);
 
-bool checkAlignment(const unsigned char* query, int queryLength,
-                    const unsigned char* target, int targetLength,
-                    int score, int pos, int mode,
+bool checkAlignment(const char* query, int queryLength,
+                    const char* target, int targetLength,
+                    int score, int pos, EdlibAlignMode mode,
                     unsigned char* alignment, int alignmentLength);
 
 int getAlignmentStart(const unsigned char* alignment, int alignmentLength,
                       int endLocation);
 
+int max(int a, int b) {
+    return a > b ? a : b;
+}
+
 int main() {
-    srand(1);
+    srand(42);
+    bool allTestsPassed = true;
 
     printf("Testing HW with alignment...\n");
-    runRandomTests(100, EDLIB_MODE_HW, true);
+    allTestsPassed &= runRandomTests(100, EDLIB_MODE_HW, true);
     printf("\n");
 
     printf("Testing HW...\n");
-    runRandomTests(100, EDLIB_MODE_HW, false);
+    allTestsPassed &= runRandomTests(100, EDLIB_MODE_HW, false);
     printf("\n");
 
     printf("Testing NW with alignment...\n");
-    runRandomTests(100, EDLIB_MODE_NW, true);
+    allTestsPassed &= runRandomTests(100, EDLIB_MODE_NW, true);
     printf("\n");
 
     printf("Testing NW...\n");
-    runRandomTests(100, EDLIB_MODE_NW, false);
+    allTestsPassed &= runRandomTests(100, EDLIB_MODE_NW, false);
     printf("\n");
 
     printf("Testing SHW with alignment...\n");
-    runRandomTests(100, EDLIB_MODE_SHW, true);
+    allTestsPassed &= runRandomTests(100, EDLIB_MODE_SHW, true);
     printf("\n");
 
     printf("Testing SHW...\n");
-    runRandomTests(100, EDLIB_MODE_SHW, false);
+    allTestsPassed &= runRandomTests(100, EDLIB_MODE_SHW, false);
     printf("\n");
 
     printf("Specific tests:\n");
-    if (runTests())
+    bool specificTestsPassed = runTests();
+    if (specificTestsPassed)
         printf("All specific tests passed!\n");
     else
         printf("Some specific tests failed\n");
+    allTestsPassed &= specificTestsPassed;
 
-    return 0;
+    return !allTestsPassed;
 }
 
 
-void fillRandomly(unsigned char* seq, int seqLength, int alphabetLength) {
+void fillRandomly(char* seq, int seqLength, int alphabetLength) {
     for (int i = 0; i < seqLength; i++)
         seq[i] = rand() % alphabetLength;
 }
 
-void runRandomTests(int numTests, int mode, bool findAlignment) {
+// Returns true if all tests passed, false otherwise.
+bool runRandomTests(int numTests, EdlibAlignMode mode, bool findAlignment) {
     int alphabetLength = 10;
     int numTestsFailed = 0;
     clock_t start;
@@ -78,8 +86,8 @@ void runRandomTests(int numTests, int mode, bool findAlignment) {
         bool failed = false;
         int queryLength = 50 + rand() % 300;
         int targetLength = 500 + rand() % 10000;
-        unsigned char query[queryLength];
-        unsigned char target[targetLength];
+        char* query = (char *) malloc(sizeof(char) * queryLength);
+        char* target = (char *) malloc(sizeof(char) * targetLength);
         fillRandomly(query, queryLength, alphabetLength);
         fillRandomly(target, targetLength, alphabetLength);
 
@@ -96,97 +104,91 @@ void runRandomTests(int numTests, int mode, bool findAlignment) {
         // printf("\n");
 
         start = clock();
-        int score1, numLocations1;
-        int* endLocations1, * startLocations1;
-        unsigned char* alignment; int alignmentLength;
-        edlibCalcEditDistance(query, queryLength, target, targetLength, alphabetLength,
-                              -1, mode, false, findAlignment, &score1,
-                              &endLocations1, &startLocations1, &numLocations1,
-                              &alignment, &alignmentLength);
+        EdlibAlignResult result = edlibAlign(
+                query, queryLength, target, targetLength,
+                edlibNewAlignConfig(-1, mode, findAlignment ? EDLIB_TASK_PATH : EDLIB_TASK_DISTANCE));
         timeEdlib += clock() - start;
-        if (alignment) {
+        if (result.alignment) {
             if (!checkAlignment(query, queryLength, target, targetLength,
-                                score1, endLocations1[0], mode, alignment, alignmentLength)) {
+                                result.editDistance, result.endLocations[0], mode,
+                                result.alignment, result.alignmentLength)) {
                 failed = true;
                 printf("Alignment is not correct\n");
             }
-            int alignmentStart = getAlignmentStart(alignment, alignmentLength, endLocations1[0]);
-            if (startLocations1[0] != alignmentStart) {
+            int alignmentStart = getAlignmentStart(result.alignment, result.alignmentLength,
+                                                   result.endLocations[0]);
+            if (result.startLocations[0] != alignmentStart) {
                 failed = true;
                 printf("Start location (%d) is not consistent with alignment start (%d)\n",
-                       startLocations1[0], alignmentStart);
+                       result.startLocations[0], alignmentStart);
             }
-            free(alignment);
         }
-        if (startLocations1) free(startLocations1);
 
         start = clock();
         int score2; int numLocations2;
         int* endLocations2;
         calcEditDistanceSimple(query, queryLength, target, targetLength,
-                               alphabetLength, mode, &score2,
-                               &endLocations2, &numLocations2);
+                               mode, &score2, &endLocations2, &numLocations2);
         timeSimple += clock() - start;
 
         // Compare results
-        if (score1 != score2) {
+        if (result.editDistance != score2) {
             failed = true;
-            printf("Scores are different! Expected %d, got %d)\n", score2, score1);
-        } else if (score1 == -1 && !(endLocations1 == NULL)) {
+            printf("Scores are different! Expected %d, got %d)\n", score2, result.editDistance);
+        } else if (result.editDistance == -1 && !(result.endLocations == NULL)) {
             failed = true;
             printf("Score was not found but endLocations is not NULL!\n");
-        } else if (numLocations1 != numLocations2) {
+        } else if (result.numLocations != numLocations2) {
             failed = true;
             printf("Number of endLocations returned is not equal! Expected %d, got %d\n",
-                   numLocations2, numLocations1);
+                   numLocations2, result.numLocations);
         } else {
-            for (int i = 0; i < numLocations1; i++) {
-                if (endLocations1[i] != endLocations2[i]) {
+            for (int i = 0; i < result.numLocations; i++) {
+                if (result.endLocations[i] != endLocations2[i]) {
                     failed = true;
                     printf("EndLocations at %d are not equal! Expected %d, got %d\n",
-                           i, endLocations2[i], endLocations1[i]);
+                           i, endLocations2[i], result.endLocations[i]);
                     break;
                 }
             }
         }
 
-        if (endLocations1) free(endLocations1);
+        edlibFreeAlignResult(result);
         if (endLocations2) free(endLocations2);
 
         for (int k = max(score2 - 1, 0); k <= score2 + 1; k++) {
-            int score3, numLocations3;
-            int* endLocations3, * startLocations3;
-            unsigned char* alignment3; int alignmentLength3;
             int scoreExpected = score2 > k ? -1 : score2;
-            edlibCalcEditDistance(query, queryLength, target, targetLength,
-                                  alphabetLength, k, mode, false, findAlignment,
-                                  &score3, &endLocations3, &startLocations3, &numLocations3,
-                                  &alignment3, &alignmentLength3);
-            if (score3 != scoreExpected) {
+            EdlibAlignResult result3 = edlibAlign(
+                    query, queryLength, target, targetLength,
+                    edlibNewAlignConfig(k, mode, findAlignment ? EDLIB_TASK_PATH : EDLIB_TASK_DISTANCE));
+            if (result3.editDistance != scoreExpected) {
                 failed = true;
                 printf("For k = %d score was %d but it should have been %d\n",
-                       k, score3, scoreExpected);
+                       k, result3.editDistance, scoreExpected);
             }
-            if (alignment3) {
+            if (result3.alignment) {
                 if (!checkAlignment(query, queryLength, target, targetLength,
-                                    score3, endLocations3[0], mode, alignment3, alignmentLength3)) {
+                                    result3.editDistance, result3.endLocations[0],
+                                    mode, result3.alignment, result3.alignmentLength)) {
                     failed = true;
                     printf("Alignment is not correct\n");
                 }
-                int alignmentStart = getAlignmentStart(alignment3, alignmentLength3, endLocations3[0]);
-                if (startLocations3[0] != alignmentStart) {
+                int alignmentStart = getAlignmentStart(result3.alignment, result3.alignmentLength,
+                                                       result3.endLocations[0]);
+                if (result3.startLocations[0] != alignmentStart) {
                     failed = true;
                     printf("Start location (%d) is not consistent with alignment start (%d)\n",
-                           startLocations3[0], alignmentStart);
+                           result3.startLocations[0], alignmentStart);
                 }
-                free(alignment3);
             }
-            if (endLocations3) free(endLocations3);
-            if (startLocations3) free(startLocations3);
+            edlibFreeAlignResult(result3);
         }
 
         if (failed)
             numTestsFailed++;
+
+        free(query);
+        free(target);
     }
 
     printf(mode == EDLIB_MODE_HW ? "HW: " : mode == EDLIB_MODE_SHW ? "SHW: " : "NW: ");
@@ -199,140 +201,127 @@ void runRandomTests(int numTests, int mode, bool findAlignment) {
     printf("Time Edlib: %lf\n", mTime);
     printf("Time Simple: %lf\n", sTime);
     printf("Times faster: %.2lf\n", sTime / mTime);
+    return numTestsFailed == 0;
 }
 
 
-bool executeTest(const unsigned char* query, int queryLength,
-                 const unsigned char* target, int targetLength,
-                 int alphabetLength, int mode) {
+bool executeTest(const char* query, int queryLength,
+                 const char* target, int targetLength,
+                 EdlibAlignMode mode) {
     printf(mode == EDLIB_MODE_HW ? "HW:  " : mode == EDLIB_MODE_SHW ? "SHW: " : "NW:  ");
 
     bool pass = true;
 
     int score2; int numLocations2; int* endLocations2;
     calcEditDistanceSimple(query, queryLength, target, targetLength,
-                           alphabetLength, mode, &score2, &endLocations2,
-                           &numLocations2);
+                           mode, &score2, &endLocations2, &numLocations2);
 
-    int score1; int numLocations1; int* endLocations1; int* startLocations1;
-    unsigned char* alignment; int alignmentLength;
-    edlibCalcEditDistance(query, queryLength, target, targetLength,
-                          alphabetLength, -1, mode, true, true,
-                          &score1, &endLocations1, &startLocations1, &numLocations1,
-                          &alignment, &alignmentLength);
+    EdlibAlignResult result = edlibAlign(query, queryLength, target, targetLength,
+                                         edlibNewAlignConfig(-1, mode, EDLIB_TASK_PATH));
 
-    if (score1 != score2) {
+    if (result.editDistance != score2) {
         pass = false;
-        printf("Scores: expected %d, got %d\n", score2, score1);
-    } else if (numLocations1 != numLocations2) {
+        printf("Scores: expected %d, got %d\n", score2, result.editDistance);
+    } else if (result.numLocations != numLocations2) {
         pass = false;
         printf("Number of locations: expected %d, got %d\n",
-               numLocations2, numLocations1);
+               numLocations2, result.numLocations);
     } else {
-        for (int i = 0; i < numLocations1; i++) {
-            if (endLocations1[i] != endLocations2[i]) {
+        for (int i = 0; i < result.numLocations; i++) {
+            if (result.endLocations[i] != endLocations2[i]) {
                 pass = false;
                 printf("End locations at %d are not equal! Expected %d, got %d\n",
-                       i, endLocations2[i], endLocations1[1]);
+                       i, endLocations2[i], result.endLocations[1]);
                 break;
             }
         }
     }
-    if (alignment) {
+    if (result.alignment) {
         if (!checkAlignment(query, queryLength, target, targetLength,
-                            score1, endLocations1[0], mode, alignment,
-                            alignmentLength)) {
+                            result.editDistance, result.endLocations[0], mode,
+                            result.alignment, result.alignmentLength)) {
             pass = false;
             printf("Alignment is not correct\n");
         }
-        int alignmentStart = getAlignmentStart(alignment, alignmentLength, endLocations1[0]);
-        if (startLocations1[0] != alignmentStart) {
+        int alignmentStart = getAlignmentStart(result.alignment, result.alignmentLength, result.endLocations[0]);
+        if (result.startLocations[0] != alignmentStart) {
             pass = false;
             printf("Start location (%d) is not consistent with alignment start (%d)\n",
-                   startLocations1[0], alignmentStart);
+                   result.startLocations[0], alignmentStart);
         }
     }
 
     printf(pass ? "\x1B[32m OK \x1B[0m\n" : "\x1B[31m FAIL \x1B[0m\n");
 
-    if (alignment) free(alignment);
-    if (endLocations1) free(endLocations1);
-    if (endLocations2) free(endLocations2);
-    if (startLocations1) free(startLocations1);
+    edlibFreeAlignResult(result);
     return pass;
 }
 
 bool test1() {
-    int alphabetLength = 4;
     int queryLength = 4;
     int targetLength = 4;
-    unsigned char query[4] = {0,1,2,3};
-    unsigned char target[4] = {0,1,2,3};
+    char query[4] = {0,1,2,3};
+    char target[4] = {0,1,2,3};
 
-    bool r = executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_HW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_NW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_SHW);
+    bool r = executeTest(query, queryLength, target, targetLength, EDLIB_MODE_HW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_NW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_SHW);
     return r;
 }
 
 bool test2() {
-    int alphabetLength = 9;
     int queryLength = 5;
     int targetLength = 9;
-    unsigned char query[5] = {0,1,2,3,4}; // "match"
-    unsigned char target[9] = {8,5,0,1,3,4,6,7,5}; // "remachine"
+    char query[5] = {0,1,2,3,4}; // "match"
+    char target[9] = {8,5,0,1,3,4,6,7,5}; // "remachine"
 
-    bool r = executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_HW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_NW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_SHW);
+    bool r = executeTest(query, queryLength, target, targetLength, EDLIB_MODE_HW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_NW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_SHW);
     return r;
 }
 
 bool test3() {
-    int alphabetLength = 6;
     int queryLength = 5;
     int targetLength = 9;
-    unsigned char query[5] = {0,1,2,3,4};
-    unsigned char target[9] = {1,2,0,1,2,3,4,5,4};
+    char query[5] = {0,1,2,3,4};
+    char target[9] = {1,2,0,1,2,3,4,5,4};
 
-    bool r = executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_HW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_NW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_SHW);
+    bool r = executeTest(query, queryLength, target, targetLength, EDLIB_MODE_HW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_NW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_SHW);
     return r;
 }
 
 bool test4() {
-    int alphabetLength = 2;
     int queryLength = 200;
     int targetLength = 200;
-    unsigned char query[200] = {0};
-    unsigned char target[200] = {1};
+    char query[200] = {0};
+    char target[200] = {1};
 
-    bool r = executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_HW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_NW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_SHW);
+    bool r = executeTest(query, queryLength, target, targetLength, EDLIB_MODE_HW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_NW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_SHW);
     return r;
 }
 
 bool test5() {
-    int alphabetLength = 2;
     int queryLength = 64; // Testing for special case when queryLength == word size
     int targetLength = 64;
-    unsigned char query[64] = {0};
-    unsigned char target[64] = {1};
+    char query[64] = {0};
+    char target[64] = {1};
 
-    bool r = executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_HW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_NW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_SHW);
+    bool r = executeTest(query, queryLength, target, targetLength, EDLIB_MODE_HW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_NW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_SHW);
     return r;
 }
 
 bool test6() {
-    int alphabetLength = 4;
     int queryLength = 13; // Testing for special case when queryLength == word size
     int targetLength = 420;
-    unsigned char query[13] = {1,3,0,1,1,1,3,0,1,3,1,3,3};
-    unsigned char target[420] = {0,1,1,1,0,1,3,0,1,3,3,3,1,3,2,2,3,2,3,3,1,0,1,1,1,0,1,3,0,1,3,
+    char query[13] = {1,3,0,1,1,1,3,0,1,3,1,3,3};
+    char target[420] = {0,1,1,1,0,1,3,0,1,3,3,3,1,3,2,2,3,2,3,3,1,0,1,1,1,0,1,3,0,1,3,
                                  3,3,1,3,2,2,3,2,3,3,1,0,1,1,1,0,1,3,0,1,3,3,3,1,3,2,2,3,2,3,3,
                                  1,0,1,1,1,0,1,3,0,1,3,3,3,1,3,2,2,3,2,3,3,1,0,1,1,1,0,1,3,0,1,
                                  3,3,3,1,3,2,2,3,2,3,3,1,0,1,1,1,0,1,3,0,1,3,3,3,1,3,2,2,3,2,3,
@@ -347,36 +336,34 @@ bool test6() {
                                  2,3,2,3,3,1,0,1,1,1,0,1,3,0,1,3,3,3,1,3,2,2,3,2,3,3,1,0,1,1,1,
                                  0,1,3,0,1,3,3,3,1,3,2,2,3,2,3,3,1};
 
-    bool r = executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_HW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_NW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_SHW);
+    bool r = executeTest(query, queryLength, target, targetLength, EDLIB_MODE_HW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_NW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_SHW);
     return r;
 }
 
 bool test7() {
-    int alphabetLength = 4;
     int queryLength = 3;
     int targetLength = 5;
-    unsigned char query[3] = {2,3,0};
-    unsigned char target[5] = {0,1,2,2,0};
+    char query[3] = {2,3,0};
+    char target[5] = {0,1,2,2,0};
 
-    bool r = executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_HW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_NW);
+    bool r = executeTest(query, queryLength, target, targetLength, EDLIB_MODE_HW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_NW);
     // Fails but not sure if it should. TODO: check this.
-    //r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_SHW);
+    //r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_SHW);
     return r;
 }
 
 bool test8() {
-    int alphabetLength = 4;
     int queryLength = 3;
     int targetLength = 3;
-    unsigned char query[3] = {2,3,0};
-    unsigned char target[3] = {2,2,0};
+    char query[3] = {2,3,0};
+    char target[3] = {2,2,0};
 
-    bool r = executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_HW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_NW);
-    r = r && executeTest(query, queryLength, target, targetLength, alphabetLength, EDLIB_MODE_SHW);
+    bool r = executeTest(query, queryLength, target, targetLength, EDLIB_MODE_HW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_NW);
+    r = r && executeTest(query, queryLength, target, targetLength, EDLIB_MODE_SHW);
     return r;
 }
 
@@ -384,9 +371,7 @@ bool testCigar() {
     unsigned char alignment[] = {EDLIB_EDOP_MATCH, EDLIB_EDOP_MATCH, EDLIB_EDOP_INSERT, EDLIB_EDOP_INSERT,
                                  EDLIB_EDOP_INSERT, EDLIB_EDOP_DELETE, EDLIB_EDOP_INSERT, EDLIB_EDOP_INSERT,
                                  EDLIB_EDOP_MISMATCH, EDLIB_EDOP_MATCH, EDLIB_EDOP_MATCH};
-    char* cigar;
-
-    edlibAlignmentToCigar(alignment, 11, EDLIB_CIGAR_EXTENDED, &cigar);
+    char* cigar = edlibAlignmentToCigar(alignment, 11, EDLIB_CIGAR_EXTENDED);
     bool pass = true;
     char expected[] = "2=3I1D2I1X2=";
     if (strcmp(cigar, expected) != 0) {
@@ -396,7 +381,7 @@ bool testCigar() {
     printf(pass ? "\x1B[32m""OK""\x1B[0m\n" : "\x1B[31m""FAIL""\x1B[0m\n");
     if (cigar) free(cigar);
 
-    edlibAlignmentToCigar(alignment, 11, EDLIB_CIGAR_STANDARD, &cigar);
+    cigar = edlibAlignmentToCigar(alignment, 11, EDLIB_CIGAR_STANDARD);
     pass = true;
     char expected2[] = "2M3I1D2I3M";
     if (strcmp(cigar, expected2) != 0) {
@@ -428,9 +413,9 @@ bool runTests() {
 /**
  * Checks if alignment is correct.
  */
-bool checkAlignment(const unsigned char* query, int queryLength,
-                    const unsigned char* target, int targetLength,
-                    int score, int pos, int mode,
+bool checkAlignment(const char* query, int queryLength,
+                    const char* target, int targetLength,
+                    int score, int pos, EdlibAlignMode mode,
                     unsigned char* alignment, int alignmentLength) {
     int alignScore = 0;
     int qIdx = queryLength - 1;

@@ -12,14 +12,15 @@
 *.la
 *.a
 
+# Build directory
+build/*
+!build/README.md
+
+# Documentation
+docs/
+
 callgrind.out.*
 
 core
-
-# Executables
-test
-aligner
-
-local_tests
 
 TAGS

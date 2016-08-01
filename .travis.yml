@@ -1,0 +1,13 @@
+language: cpp
+compiler:
+  - gcc
+os:
+  - linux
+  - osx
+
+before_script:
+  - cd build
+  - cmake ..
+script:
+  - make
+  - bin/runTests

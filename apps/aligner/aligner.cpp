@@ -10,27 +10,24 @@
 
 #include "edlib.h"
 
-#include "SimpleEditDistance.h"
-
 using namespace std;
 
-int readFastaSequences(const char* path, vector< vector<unsigned char> >* seqs,
-                       unsigned char* letterIdx, char* idxToLetter, bool* inAlphabet, int &alphabetLength);
+int readFastaSequences(const char* path, vector< vector<char> >* seqs);
 
-void printAlignment(const unsigned char* query, const int queryLength,
-                    const unsigned char* target, const int targetLength,
+void printAlignment(const char* query, const int queryLength,
+                    const char* target, const int targetLength,
                     const unsigned char* alignment, const int alignmentLength,
-                    const int position, const int modeCode, const char* idxToLetter);
+                    const int position, const EdlibAlignMode modeCode);
 
 // For debugging
-void printSeq(const vector<unsigned char> &seq) {
+void printSeq(const vector<char> &seq) {
     for (int i = 0; i < seq.size(); i++)
         printf("%d ", seq[i]);
     printf("\n");
 }
 
 int main(int argc, char * const argv[]) {
-    
+
     //----------------------------- PARSE COMMAND LINE ------------------------//
     // If true, there will be no output.
     bool silent = false;
@@ -43,15 +40,13 @@ int main(int argc, char * const argv[]) {
     bool findStartLocations = false;
     int option;
     int kArg = -1;
-    // If true, simple implementation of edit distance algorithm is used instead of edlib.
-    // This is for testing purposes.
-    bool useSimple = false;
+
     // If "STD" or "EXT", cigar string will be printed. if "NICE" nice representation
     // of alignment will be printed.
     char alignmentFormat[16] = "NICE";
 
     bool invalidOption = false;
-    while ((option = getopt(argc, argv, "m:n:k:f:splt")) >= 0) {
+    while ((option = getopt(argc, argv, "m:n:k:f:spl")) >= 0) {
         switch (option) {
         case 'm': strcpy(mode, optarg); break;
         case 'n': numBestSeqs = atoi(optarg); break;
@@ -60,7 +55,6 @@ int main(int argc, char * const argv[]) {
         case 's': silent = true; break;
         case 'p': findAlignment = true; break;
         case 'l': findStartLocations = true; break;
-        case 't': useSimple = true; break;
         default: invalidOption = true;
         }
     }
@@ -75,7 +69,6 @@ int main(int argc, char * const argv[]) {
                 " Specifying small N can make total calculation much faster. [default: 0]\n");
         fprintf(stderr, "\t-k K  Sequences with score > K will be discarded."
                 " Smaller k, faster calculation.\n");
-        fprintf(stderr, "\t-t  If specified, simple algorithm is used instead of edlib. To be used for testing.\n");
         fprintf(stderr, "\t-p  If specified, alignment path will be found and printed. "
                 "This may significantly slow down the calculation.\n");
         fprintf(stderr, "\t-l  If specified, start locations will be found and printed. "
@@ -95,7 +88,7 @@ int main(int argc, char * const argv[]) {
         return 1;
     }
 
-    int modeCode;
+    EdlibAlignMode modeCode;
     if (!strcmp(mode, "SHW"))
         modeCode = EDLIB_MODE_SHW;
     else if (!strcmp(mode, "HW"))
@@ -108,23 +101,19 @@ int main(int argc, char * const argv[]) {
     }
     printf("Using %s alignment mode.\n", mode);
 
+    EdlibAlignTask alignTask = EDLIB_TASK_DISTANCE;
+    if (findStartLocations) alignTask = EDLIB_TASK_LOC;
+    if (findAlignment) alignTask = EDLIB_TASK_PATH;
 
-    // Alphabet information, will be constructed on fly while reading sequences
-    unsigned char letterIdx[128]; //!< letterIdx[c] is index of letter c in alphabet
-    char idxToLetter[128]; //!< numToLetter[i] is letter that has index i in alphabet
-    bool inAlphabet[128]; // inAlphabet[c] is true if c is in alphabet
-    for (int i = 0; i < 128; i++) {
-        inAlphabet[i] = false;
-    }
+
     int alphabetLength = 0;
 
     int readResult;
     // Read queries
     char* queriesFilepath = argv[optind];
-    vector< vector<unsigned char> >* querySequences = new vector< vector<unsigned char> >();
+    vector< vector<char> >* querySequences = new vector< vector<char> >();
     printf("Reading queries...\n");
-    readResult = readFastaSequences(queriesFilepath, querySequences, letterIdx, idxToLetter,
-                                    inAlphabet, alphabetLength);
+    readResult = readFastaSequences(queriesFilepath, querySequences);
     if (readResult) {
         printf("Error: There is no file with name %s\n", queriesFilepath);
         delete querySequences;
@@ -139,25 +128,18 @@ int main(int argc, char * const argv[]) {
 
     // Read target
     char* targetFilepath = argv[optind+1];    
-    vector< vector<unsigned char> >* targetSequences = new vector< vector<unsigned char> >();
+    vector< vector<char> >* targetSequences = new vector< vector<char> >();
     printf("Reading target fasta file...\n");
-    readResult = readFastaSequences(targetFilepath, targetSequences, letterIdx, idxToLetter,
-                                    inAlphabet, alphabetLength);
+    readResult = readFastaSequences(targetFilepath, targetSequences);
     if (readResult) {
         printf("Error: There is no file with name %s\n", targetFilepath);
         delete querySequences;
         delete targetSequences;
         return 1;
     }
-    unsigned char* target = (*targetSequences)[0].data();
+    char* target = (*targetSequences)[0].data();
     int targetLength = (*targetSequences)[0].size();
     printf("Read target, %d residues.\n", targetLength);
-
-    printf("Alphabet: ");
-    for (int c = 0; c < 128; c++)
-        if (inAlphabet[c])
-            printf("%c ", c);
-    printf("\n");
 
 
     // ----------------------------- MAIN CALCULATION ----------------------------- //
@@ -176,20 +158,17 @@ int main(int argc, char * const argv[]) {
         fflush(stdout);
     }
     for (int i = 0; i < numQueries; i++) {
-        unsigned char* query = (*querySequences)[i].data();
+        char* query = (*querySequences)[i].data();
         int queryLength = (*querySequences)[i].size();
         // Calculate score
-        if (useSimple) {
-            // Just for testing
-            calcEditDistanceSimple(query, queryLength, target, targetLength,
-                                   alphabetLength, modeCode, scores + i,
-                                   endLocations + i, numLocations + i);
-        } else {
-            edlibCalcEditDistance(query, queryLength, target, targetLength,
-                                  alphabetLength, k, modeCode, findStartLocations, findAlignment,
-                                  scores + i, endLocations + i, startLocations + i, numLocations + i,
-                                  &alignment, &alignmentLength);
-        }
+        EdlibAlignResult result = edlibAlign(query, queryLength, target, targetLength,
+                                             edlibNewAlignConfig(k, modeCode, alignTask));
+        scores[i] = result.editDistance;
+        endLocations[i] = result.endLocations;
+        startLocations[i] = result.startLocations;
+        numLocations[i] = result.numLocations;
+        alignment = result.alignment;
+        alignmentLength = result.alignmentLength;
 
         // If we want only numBestSeqs best sequences, update best scores 
         // and adjust k to largest score.
@@ -218,13 +197,12 @@ int main(int argc, char * const argv[]) {
                 if (!strcmp(alignmentFormat, "NICE")) {
                     printAlignment(query, queryLength, target, targetLength,
                                    alignment, alignmentLength,
-                                   *(endLocations[i]), modeCode, idxToLetter);
+                                   *(endLocations[i]), modeCode);
                 } else {
                     printf("Cigar:\n");
-                    char* cigar = NULL;
-                    int cigarFormat = !strcmp(alignmentFormat, "CIG_STD") ?
+                    EdlibCigarFormat cigarFormat = !strcmp(alignmentFormat, "CIG_STD") ?
                         EDLIB_CIGAR_STANDARD : EDLIB_CIGAR_EXTENDED;
-                    edlibAlignmentToCigar(alignment, alignmentLength, cigarFormat, &cigar);
+                    char* cigar =edlibAlignmentToCigar(alignment, alignmentLength, cigarFormat);
                     if (cigar) {
                         printf("%s\n", cigar);
                         free(cigar);
@@ -271,7 +249,7 @@ int main(int argc, char * const argv[]) {
                 printf("\n");
             }
         }
-        
+
     }
 
     clock_t finish = clock();
@@ -298,16 +276,11 @@ int main(int argc, char * const argv[]) {
 
 
 /** Reads sequences from fasta file.
- * Function is passed current alphabet information and will update it if needed.
  * @param [in] path Path to fasta file containing sequences.
- * @param [out] seqs Sequences will be stored here, each sequence as vector of indexes from alphabet.
- * @param [inout] letterIdx  Array of length 128. letterIdx[c] is index of letter c in alphabet.
- * @param [inout] inAlphabet  Array of length 128. inAlphabet[c] is true if c is in alphabet.
- * @param [inout] alphabetLength
+ * @param [out] seqs Sequences will be stored here, each sequence as vector of letters.
  * @return 0 if all ok, positive number otherwise.
  */
-int readFastaSequences(const char* path, vector< vector<unsigned char> >* seqs,
-                       unsigned char* letterIdx, char* idxToLetter, bool* inAlphabet, int &alphabetLength) {
+int readFastaSequences(const char* path, vector< vector<char> >* seqs) {
     seqs->clear();
     
     FILE* file = fopen(path, "r");
@@ -335,16 +308,9 @@ int readFastaSequences(const char* path, vector< vector<unsigned char> >* seqs,
                     // If starting new sequence, initialize it.
                     if (inSequence == false) {
                         inSequence = true;
-                        seqs->push_back(vector<unsigned char>());
+                        seqs->push_back(vector<char>());
                     }
-
-                    if (!inAlphabet[c]) { // I construct alphabet on fly
-                        inAlphabet[c] = true;
-                        letterIdx[c] = alphabetLength;
-                        idxToLetter[alphabetLength] = c;
-                        alphabetLength++;
-                    }
-                    seqs->back().push_back(letterIdx[c]);
+                    seqs->back().push_back(c);
                 }
             }
         }
@@ -355,10 +321,10 @@ int readFastaSequences(const char* path, vector< vector<unsigned char> >* seqs,
 }
 
 
-void printAlignment(const unsigned char* query, const int queryLength,
-                    const unsigned char* target, const int targetLength,
+void printAlignment(const char* query, const int queryLength,
+                    const char* target, const int targetLength,
                     const unsigned char* alignment, const int alignmentLength,
-                    const int position, const int modeCode, const char* idxToLetter) {
+                    const int position, const EdlibAlignMode modeCode) {
     int tIdx = -1;
     int qIdx = -1;
     if (modeCode == EDLIB_MODE_HW) {
@@ -376,7 +342,7 @@ void printAlignment(const unsigned char* query, const int queryLength,
             if (alignment[j] == 1)
                 printf("_");
             else
-                printf("%c", idxToLetter[target[++tIdx]]);
+                printf("%c", target[++tIdx]);
             if (j == start)
                 startTIdx = tIdx;
         }
@@ -388,7 +354,7 @@ void printAlignment(const unsigned char* query, const int queryLength,
             if (alignment[j] == 2)
                 printf("_");
             else
-                printf("%c", idxToLetter[query[++qIdx]]);
+                printf("%c", query[++qIdx]);
             if (j == start)
                 startQIdx = qIdx;
         }
