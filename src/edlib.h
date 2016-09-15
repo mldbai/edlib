@@ -2,6 +2,7 @@
 #define EDLIB_H
 
 
+
 #ifdef __cplusplus
 extern "C" {
 #endif
