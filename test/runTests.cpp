@@ -4,10 +4,11 @@
 #include <cstring>
 
 #include "edlib.h"
-#include "SimpleEditDistance.h"
 
 using namespace std;
+using namespace Edlib;
 
+#include "SimpleEditDistance.h"
 
 bool runRandomTests(int numTests, EdlibAlignMode mode, bool findAlignment);
 bool runTests();
