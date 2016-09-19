@@ -1304,7 +1304,8 @@ static int transformSequences(const char* queryOriginal, const int queryLength,
     int alphabetLength = 0;
 
     for (int i = 0; i < queryLength; i++) {
-        char c = queryOriginal[i];
+        // quick hack so that it works for utf-8 too (MLDB-1948)
+        char c = static_cast<unsigned char>(queryOriginal[i]) % 128;
         if (!inAlphabet[c]) {
             inAlphabet[c] = true;
             letterIdx[c] = alphabetLength;
@@ -1312,8 +1313,10 @@ static int transformSequences(const char* queryOriginal, const int queryLength,
         }
         (*queryTransformed)[i] = letterIdx[c];
     }
+
     for (int i = 0; i < targetLength; i++) {
-        char c = targetOriginal[i];
+        // quick hack so that it works for utf-8 too (MLDB-1948)
+        char c = static_cast<unsigned char>(targetOriginal[i]) % 128;
         if (!inAlphabet[c]) {
             inAlphabet[c] = true;
             letterIdx[c] = alphabetLength;
