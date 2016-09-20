@@ -1272,7 +1272,7 @@ static int obtainAlignmentHirschberg(
     return EDLIB_STATUS_OK;
 }
 
-static char32_t getCodePoint(const char * in, int & idx) {
+static char32_t getNextChar32(const char * in, int & idx) {
     unsigned char c = in[idx];
     ++idx;
     if ((c & 0x80) == 0) {
@@ -1296,7 +1296,7 @@ static char32_t getCodePoint(const char * in, int & idx) {
             + to_string(idx));
     }
 
-    char32_t res = static_cast<char32_t>(c);
+    char32_t res = static_cast<char32_t>(c << 8 * remaining);
     for (; remaining > 0; --remaining, ++idx) {
         c = in[idx];
         if ((c & 0xC0) != 0x80) {
@@ -1304,7 +1304,7 @@ static char32_t getCodePoint(const char * in, int & idx) {
                 "Invalid UTF-8 character sequence encountered in buffer at index "
                 + to_string(idx));
         }
-        res += static_cast<char32_t>(c);
+        res += static_cast<char32_t>(c << 8 * remaining);
     }
     return res;
 };
@@ -1339,18 +1339,18 @@ static std::tuple<int, int, int> transformSequences(
     *targetTransformed = (char32_t *) malloc(sizeof(char32_t) * targetLength);
 
     // Alphabet information, it is constructed on fly while transforming sequences.
-    constexpr int ALPHABET_ARR_SIZE = 128;
-    int letterIdx[ALPHABET_ARR_SIZE]; //!< letterIdx[c] is index of letter c in alphabet
-    bool inAlphabet[ALPHABET_ARR_SIZE] = { 0 }; // inAlphabet[c] is true if c is in alphabet
-    std::map<int, int> extendedAlphabet; // For unicodes
+    constexpr int ASCII_ALPHABET_ARR_SIZE = 128;
+    int letterIdx[ASCII_ALPHABET_ARR_SIZE]; //!< letterIdx[c] is index of letter c in alphabet
+    bool inAlphabet[ASCII_ALPHABET_ARR_SIZE] = { 0 }; // inAlphabet[c] is true if c is in alphabet
+    std::map<char32_t, int> extendedAlphabet; // For unicodes
     int alphabetLength = 0;
 
     auto convert = [&](const char * org, int orgLength, char32_t** transformed) {
         int idx = 0; // index over org
         int transformLength = 0;
         while (idx < orgLength) {
-            int cp = getCodePoint(org, idx); // increments idx
-            if (cp < ALPHABET_ARR_SIZE) {
+            char32_t cp = getNextChar32(org, idx); // increments idx
+            if (cp < ASCII_ALPHABET_ARR_SIZE) {
                 // ascii
                 if (!inAlphabet[cp]) {
                     inAlphabet[cp] = true;
