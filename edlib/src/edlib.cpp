@@ -677,15 +677,6 @@ static int myersCalcEditDistanceNW(Word* Peq, int W, int maxNumBlocks,
         int hout = 1;
         bl = blocks + firstBlock;
         for (int b = firstBlock; b <= lastBlock; b++) {
-            cerr << b << endl;
-            cerr << __LINE__ << "====" << endl;
-            cerr << bl << endl;
-            cerr << Peq_c << endl;
-            cerr << hout << endl;
-            cerr << __LINE__ << "====" << endl;
-            cerr << bl->P << endl;
-            cerr << bl->M << endl;
-            cerr << Peq_c[b] << endl;
             hout = calculateBlock(bl->P, bl->M, Peq_c[b], hout, bl->P, bl->M);
             bl->score += hout;
             bl++;
@@ -1282,41 +1273,37 @@ static int obtainAlignmentHirschberg(
     return EDLIB_STATUS_OK;
 }
 
-static int getCodePoint(const char * in, int & pos) {
-    unsigned char c = in[pos];
-    ++pos;
+static int getCodePoint(const char * in, int & idx) {
+    unsigned char c = in[idx];
+    ++idx;
     if ((c & 0x80) == 0) {
         return c;
     }
-    cerr << "new sequence - " << static_cast<int>(c) << endl;
 
     // unicode
-    int length;
+    int remaining;
     if ((c & 0xE0) == 0xC0) {
-        length = 1;
+        remaining = 1;
     }
     else if ((c & 0xF0) == 0xD0) {
-        length = 2;
+        remaining = 2;
     }
     else if ((c & 0xF8) == 0xF0) {
-        length = 3;
+        remaining = 3;
     }
     else {
-        cerr << "A - " << static_cast<int>(c) << endl;
         throw std::runtime_error(
-            "Invalid UTF-8 character sequence encountered in buffer at pos "
-            + to_string(pos));
+            "Invalid UTF-8 character sequence encountered in buffer at index "
+            + to_string(idx));
     }
 
     int res = static_cast<int>(c);
-    for (; c >= 128 && length > 0; --length, ++pos) {
-        c = in[pos];
-        cerr << "sequence - " << static_cast<int>(c) << endl;
+    for (; remaining > 0; --remaining, ++idx) {
+        c = in[idx];
         if ((c & 0xC0) != 0x80) {
-            cerr << "B - " << static_cast<int>(c) << endl;
             throw std::runtime_error(
-                "Invalid UTF-8 character sequence encountered in buffer at pos "
-                + to_string(pos));
+                "Invalid UTF-8 character sequence encountered in buffer at index "
+                + to_string(idx));
         }
         res += static_cast<int>(c);
     }
@@ -1359,37 +1346,40 @@ static std::tuple<int, int, int> transformSequences(
     std::map<int, int> extendedAlphabet; // For unicodes
     int alphabetLength = 0;
 
-    auto convert = [&](const char * org, int length) {
-        int pos = 0;    // pos over org
+    auto convert = [&](const char * org, int orgLength, int** transformed) {
+        int idx = 0; // index over org
         int transformLength = 0;
-        while (pos < length) {
-            int cp = getCodePoint(org, pos); // increments pos
+        while (idx < orgLength) {
+            int cp = getCodePoint(org, idx); // increments idx
             if (cp < ALPHABET_ARR_SIZE) {
+                // ascii
                 if (!inAlphabet[cp]) {
                     inAlphabet[cp] = true;
                     letterIdx[cp] = alphabetLength;
                     ++alphabetLength;
                 }
-                (*queryTransformed)[transformLength] = letterIdx[cp];
+                (*transformed)[transformLength] = letterIdx[cp];
             }
             else {
+                // utf-8
                 auto it = extendedAlphabet.find(cp);
                 if (it == extendedAlphabet.end()) {
                     extendedAlphabet[cp] = alphabetLength;
-                    (*queryTransformed)[transformLength] = alphabetLength;
+                    (*transformed)[transformLength] = alphabetLength;
                     ++alphabetLength;
                 }
                 else {
-                    (*queryTransformed)[transformLength] = it->second;
+                    (*transformed)[transformLength] = it->second;
                 }
             }
             ++transformLength;
         }
+
         return transformLength;
     };
 
-    int orgTransformedLength = convert(queryOriginal, queryLength);
-    int targetTransformedLength = convert(targetOriginal, targetLength);
+    int orgTransformedLength = convert(queryOriginal, queryLength, queryTransformed);
+    int targetTransformedLength = convert(targetOriginal, targetLength, targetTransformed);
 
     return make_tuple(alphabetLength, orgTransformedLength, targetTransformedLength);
 }
