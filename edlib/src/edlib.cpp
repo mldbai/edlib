@@ -1284,25 +1284,23 @@ static char32_t getNextChar32(const char * in, int & idx) {
     if ((c & 0xE0) == 0xC0) {
         remaining = 1;
     }
-    else if ((c & 0xF0) == 0xD0) {
+    else if ((c & 0xF0) == 0xE0) {
         remaining = 2;
     }
     else if ((c & 0xF8) == 0xF0) {
         remaining = 3;
     }
     else {
-        throw std::runtime_error(
-            "Invalid UTF-8 character sequence encountered in buffer at index "
-            + to_string(idx));
+        // ERROR
+        return 0xFFFFFFFF;
     }
 
     char32_t res = static_cast<char32_t>(c << 8 * remaining);
     for (; remaining > 0; --remaining, ++idx) {
         c = in[idx];
         if ((c & 0xC0) != 0x80) {
-            throw std::runtime_error(
-                "Invalid UTF-8 character sequence encountered in buffer at index "
-                + to_string(idx));
+            // ERROR
+            return 0xFFFFFFFF;
         }
         res += static_cast<char32_t>(c << 8 * remaining);
     }
